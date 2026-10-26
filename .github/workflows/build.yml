@@ -31,7 +31,7 @@ jobs:
 
     - name: Build APK (Auto-accept Flutter install)
       run: |
-        echo "y" | flet build apk --verbose
+        echo "y" | flet build apk --module-name interra_app --verbose
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
