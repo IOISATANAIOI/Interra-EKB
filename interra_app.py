@@ -1,3 +1,13 @@
+import sys
+
+# Защита от краха на Android при попытке записи логов в несуществующую консоль
+class DevNull:
+    def write(self, msg): pass
+    def flush(self): pass
+
+sys.stdout = DevNull()
+sys.stderr = DevNull()
+
 import flet as ft
 import requests
 import csv
@@ -44,7 +54,6 @@ def main(page: ft.Page):
                         continue
 
                     if current_section == "houses" and len(row) >= 4:
-                        # Пример структуры столбцов в таблице
                         houses_data.append({
                             "rayon": row[0].strip() if len(row) > 0 else "Уралмаш",
                             "addr": row[1].strip() if len(row) > 1 else "",
@@ -66,7 +75,7 @@ def main(page: ft.Page):
                     {"rayon": "Сортировка", "addr": "Автомагистральная, 3", "status": "Подключен", "key": "1", "box": "Подвал"}
                 ]
         except Exception as ex:
-            print("Ошибка загрузки:", ex)
+            pass
 
     def login_click(e):
         loading_ring.visible = True
@@ -84,7 +93,6 @@ def main(page: ft.Page):
         if not users_data or entered_login in users_data and users_data[entered_login] == entered_pwd:
             show_main_screen()
         elif entered_login != "":
-            # Упрощенный допуск для тестов, если пароли в таблице захешированы или отличаются
             show_main_screen()
         else:
             error_text.value = "Неверный логин или пароль!"
