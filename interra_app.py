@@ -1,6 +1,6 @@
 import sys
 
-# Защита от краха на Android при попытке записи логов в несуществующую консоль
+# Полное подавление вывода в консоль для Android (защита от краха)
 class DevNull:
     def write(self, msg): pass
     def flush(self): pass
@@ -12,8 +12,8 @@ import flet as ft
 import requests
 import csv
 import io
+import json
 
-# Ссылка на вашу Google Таблицу (экспорт в CSV)
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1QeMjZ8wAYEaTVOp7NzA2eySeuADJVPVe/export?format=csv"
 
 def main(page: ft.Page):
@@ -27,20 +27,32 @@ def main(page: ft.Page):
     error_text = ft.Text("", color=ft.colors.RED)
     loading_ring = ft.ProgressRing(visible=False, width=20, height=20)
 
-    # Кэш данных
-    houses_data = []
-    users_data = {}
+    # Стандартные демо-данные на случай первого запуска без кеша
+    default_houses = [
+        {"rayon": "Уралмаш", "addr": "22 Партсъезда, 5а", "status": "Подключен", "key": "4", "box": "Чердак 1п"},
+        {"rayon": "Эльмаш", "addr": "Бабушкина, 24", "status": "Подключен", "key": "12", "box": "Чердак 2п"},
+        {"rayon": "Сортировка", "addr": "Автомагистральная, 3", "status": "Подключен", "key": "1", "box": "Подвал"}
+    ]
 
-    def fetch_data_from_sheet():
+    # Загружаем кэшированные данные из памяти телефона (если они там есть)
+    saved_houses = page.client_storage.get("houses_data")
+    saved_users = page.client_storage.get("users_data")
+
+    houses_data = saved_houses if saved_houses else default_houses
+    users_data = saved_users if saved_users else {}
+
+    def fetch_data_from_sheet(show_message=False):
         nonlocal houses_data, users_data
         try:
-            response = requests.get(SHEET_CSV_URL)
+            response = requests.get(SHEET_CSV_URL, timeout=5)
             if response.status_code == 200:
                 content = response.content.decode('utf-8')
                 reader = csv.reader(io.StringIO(content))
                 
-                # Парсим таблицу (строка за строкой)
+                temp_houses = []
+                temp_users = {}
                 current_section = None
+                
                 for row in reader:
                     if not row or not any(row):
                         continue
@@ -54,7 +66,7 @@ def main(page: ft.Page):
                         continue
 
                     if current_section == "houses" and len(row) >= 4:
-                        houses_data.append({
+                        temp_houses.append({
                             "rayon": row[0].strip() if len(row) > 0 else "Уралмаш",
                             "addr": row[1].strip() if len(row) > 1 else "",
                             "status": row[2].strip() if len(row) > 2 else "Активен",
@@ -65,31 +77,39 @@ def main(page: ft.Page):
                         login = row[0].strip().lower()
                         pwd = row[1].strip()
                         if login and pwd:
-                            users_data[login] = pwd
-            
-            # Если таблица пустая или не распарсилась, добавим демо-данные для подстраховки
-            if not houses_data:
-                houses_data = [
-                    {"rayon": "Уралмаш", "addr": "22 Партсъезда, 5а", "status": "Подключен", "key": "4", "box": "Чердак 1п"},
-                    {"rayon": "Эльмаш", "addr": "Бабушкина, 24", "status": "Подключен", "key": "12", "box": "Чердак 2п"},
-                    {"rayon": "Сортировка", "addr": "Автомагистральная, 3", "status": "Подключен", "key": "1", "box": "Подвал"}
-                ]
-        except Exception as ex:
-            pass
+                            temp_users[login] = pwd
+                
+                # Если успешно скачали свежие данные — обновляем память телефона
+                if temp_houses:
+                    houses_data = temp_houses
+                    page.client_storage.set("houses_data", houses_data)
+                if temp_users:
+                    users_data = temp_users
+                    page.client_storage.set("users_data", users_data)
+                
+                if show_message:
+                    page.snack_bar = ft.SnackBar(ft.Text("Данные успешно синхронизированы!"))
+                    page.snack_bar.open = True
+            else:
+                if show_message:
+                    page.snack_bar = ft.SnackBar(ft.Text("Ошибка сервера Google Таблиц"))
+                    page.snack_bar.open = True
+        except Exception:
+            if show_message:
+                page.snack_bar = ft.SnackBar(ft.Text("Нет интернета. Используются сохраненные данные."))
+                page.snack_bar.open = True
+        page.update()
 
     def login_click(e):
         loading_ring.visible = True
         page.update()
-        
-        # Скачиваем свежие данные из таблицы при входе
-        fetch_data_from_sheet()
         
         entered_login = login_field.value.strip().lower()
         entered_pwd = password_field.value.strip()
         
         loading_ring.visible = False
         
-        # Проверяем по базе или разрешаем вход, если база пустая
+        # Проверяем по локальной базе (или пустой базе)
         if not users_data or entered_login in users_data and users_data[entered_login] == entered_pwd:
             show_main_screen()
         elif entered_login != "":
@@ -110,7 +130,10 @@ def main(page: ft.Page):
                 password_field,
                 error_text,
                 ft.Container(height=5),
-                ft.Row([ft.ElevatedButton("Войти", on_click=login_click, width=280, color=ft.colors.WHITE, bgcolor=ft.colors.BLUE), loading_ring], alignment=ft.MainAxisAlignment.CENTER)
+                ft.Row([
+                    ft.ElevatedButton("Войти", on_click=login_click, width=280, color=ft.colors.WHITE, bgcolor=ft.colors.BLUE),
+                    loading_ring
+                ], alignment=ft.MainAxisAlignment.CENTER)
             ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
         )
         page.update()
@@ -159,18 +182,16 @@ def main(page: ft.Page):
         update_view(None)
 
         def refresh_data(e):
-            fetch_data_from_sheet()
+            # Кнопка синхронизации: скачивает из сети и обновляет кэш
+            fetch_data_from_sheet(show_message=True)
             update_view(None)
-            page.snack_bar = ft.SnackBar(ft.Text("Данные обновлены из таблицы!"))
-            page.snack_bar.open = True
-            page.update()
 
         page.add(
             ft.Column([
                 ft.Row([
                     ft.Text("База домов (Екатеринбург)", weight=ft.FontWeight.BOLD),
                     ft.Row([
-                        ft.IconButton(ft.icons.REFRESH, on_click=refresh_data, tooltip="Обновить данные"),
+                        ft.IconButton(ft.icons.SYNC, on_click=refresh_data, tooltip="Синхронизировать с таблицей"),
                         ft.IconButton(ft.icons.LOGOUT, on_click=lambda _: show_login(), tooltip="Выйти")
                     ])
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -181,4 +202,7 @@ def main(page: ft.Page):
         )
         page.update()
 
-    show_login()
+    try:
+        show_login()
+    except Exception:
+        pass
