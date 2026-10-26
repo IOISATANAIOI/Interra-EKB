@@ -174,5 +174,3 @@ def main(page: ft.Page):
         page.update()
 
     show_login()
-
-ft.app(target=main)
